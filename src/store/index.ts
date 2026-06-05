@@ -83,6 +83,9 @@ export const isShowAnswerOnHoverAtom = atomWithStorage('isShowAnswerOnHover', tr
 
 export const isTextSelectableAtom = atomWithStorage('isTextSelectable', false)
 
+// 💥 新增配置：是否开启完美主义模式（打错一个字全词重新输入），默认关闭(false)
+export const isStrictResetModeAtom = atomWithStorage('isStrictResetMode', false)
+
 export const reviewModeInfoAtom = reviewInfoAtom({
   isReviewMode: false,
   reviewRecord: undefined as ReviewRecord | undefined,
@@ -117,6 +120,3 @@ export const dismissStartCardDateAtom = atomWithStorage<Date | null>(DISMISS_STA
 
 // Enhanced version promotion popup state
 export const hasSeenEnhancedPromotionAtom = atomWithStorage('hasSeenEnhancedPromotion', false)
-
-// for dev test
-//   dismissStartCardDateAtom = atom<Date | null>(new Date())

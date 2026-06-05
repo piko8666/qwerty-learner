@@ -20,6 +20,7 @@ import {
   isTextSelectableAtom,
   pronunciationIsOpenAtom,
   wordDictationConfigAtom,
+  isStrictResetModeAtom, // 💥 引入新开关
 } from '@/store'
 import type { Word } from '@/typings'
 import { CTRL, getUtcStringForMixpanel } from '@/utils'
@@ -41,7 +42,6 @@ export default function WordComponent({ word, onFinish }: { word: Word; onFinish
   const isIgnoreCase = useAtomValue(isIgnoreCaseAtom)
   const isShowAnswerOnHover = useAtomValue(isShowAnswerOnHoverAtom)
   const saveWordRecord = useSaveWordRecord()
-  // const wordLogUploader = useMixPanelWordLogUploader(state)
   const [playKeySound, playBeepSound, playHintSound] = useKeySounds()
   const pronunciationIsOpen = useAtomValue(pronunciationIsOpenAtom)
   const [isHoveringWord, setIsHoveringWord] = useState(false)
@@ -49,11 +49,18 @@ export default function WordComponent({ word, onFinish }: { word: Word; onFinish
   const currentLanguageCategory = useAtomValue(currentDictInfoAtom).languageCategory
   const currentChapter = useAtomValue(currentChapterAtom)
 
+  // 💥 获取全局开关状态
+  const isStrictResetMode = useAtomValue(isStrictResetModeAtom)
+  // 💥 新增指针护航：用于记录上一次的输入长度，防止异步错误回滚触发二次校验
+  const prevInputLength = useRef(0)
+
   const [showTipAlert, setShowTipAlert] = useState(false)
   const wordPronunciationIconRef = useRef<WordPronunciationIconRef>(null)
 
   useEffect(() => {
-    // run only when word changes
+    // 当单词发生变化时，将长度指针归零
+    prevInputLength.current = 0
+
     let headword = ''
     try {
       headword = word.name.replace(new RegExp(' ', 'g'), EXPLICIT_SPACE)
@@ -167,12 +174,14 @@ export default function WordComponent({ word, onFinish }: { word: Word; onFinish
 
   useEffect(() => {
     const inputLength = wordState.inputWord.length
-    /**
-     * TODO: 当用户输入错误时，会报错
-     * Cannot update a component (`App`) while rendering a different component (`WordComponent`). To locate the bad setState() call inside `WordComponent`, follow the stack trace as described in https://reactjs.org/link/setstate-in-render
-     * 目前不影响生产环境，猜测是因为开发环境下 react 会两次调用 useEffect 从而展示了这个 warning
-     * 但这终究是一个 bug，需要修复
-     */
+
+    // 💥 长度拦截卫兵：如果当前长度变短了（说明是由异步错误回滚清空引起的），则静默同步长度并直接退出，不触发校验
+    if (inputLength <= prevInputLength.current) {
+      prevInputLength.current = inputLength
+      return
+    }
+    prevInputLength.current = inputLength
+
     if (wordState.hasWrong || inputLength === 0 || wordState.displayWord.length === 0) {
       return
     }
@@ -209,53 +218,60 @@ export default function WordComponent({ word, onFinish }: { word: Word; onFinish
       dispatch({ type: TypingStateActionType.REPORT_CORRECT_WORD })
     } else {
       // 出错时
-      // 出错时
-playBeepSound()
+      playBeepSound()
 
-let currentLetterMistake: Record<number, string[]> = {}
+      let currentLetterMistake: Record<number, string[]> = {}
 
-setWordState((state) => {
-  state.letterStates[inputLength - 1] = 'wrong'
-  state.hasWrong = true
-  state.hasMadeInputWrong = true
-  state.wrongCount += 1
-  state.letterTimeArray = []
+      setWordState((state) => {
+        state.letterStates[inputLength - 1] = 'wrong'
+        state.hasWrong = true
+        state.hasMadeInputWrong = true
+        state.wrongCount += 1
+        state.letterTimeArray = []
 
-  if (state.letterMistake[inputLength - 1]) {
-    state.letterMistake[inputLength - 1].push(inputChar)
-  } else {
-    state.letterMistake[inputLength - 1] = [inputChar]
-  }
+        if (state.letterMistake[inputLength - 1]) {
+          state.letterMistake[inputLength - 1].push(inputChar)
+        } else {
+          state.letterMistake[inputLength - 1] = [inputChar]
+        }
 
-  currentLetterMistake = JSON.parse(
-    JSON.stringify(state.letterMistake),
-  )
-})
+        currentLetterMistake = JSON.parse(
+          JSON.stringify(state.letterMistake),
+        )
+      })
 
-dispatch({
-  type: TypingStateActionType.REPORT_WRONG_WORD,
-  payload: {
-    letterMistake: currentLetterMistake,
-  },
-})
+      dispatch({
+        type: TypingStateActionType.REPORT_WRONG_WORD,
+        payload: {
+          letterMistake: currentLetterMistake,
+        },
+      })
 
-if (
-  currentChapter === 0 &&
-  state.chapterData.index === 0 &&
-  wordState.wrongCount >= 3
-) {
-  setShowTipAlert(true)
-}
+      if (
+        currentChapter === 0 &&
+        state.chapterData.index === 0 &&
+        wordState.wrongCount >= 3
+      ) {
+        setShowTipAlert(true)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wordState.inputWord])
 
+  // 💥 核心改造：错误回滚/清空异步定时器
   useEffect(() => {
     if (wordState.hasWrong) {
       const timer = setTimeout(() => {
         setWordState((state) => {
-          state.inputWord = ''
-          state.letterStates = new Array(state.letterStates.length).fill('normal')
+          if (isStrictResetMode) {
+            // 【开启开关】：全词清空重新输入
+            state.inputWord = ''
+            state.letterStates = new Array(state.letterStates.length).fill('normal')
+          } else {
+            // 【默认状态】：卡在当前字母，仅切除最后一个错误输入，保留前面已经打对的字母
+            state.inputWord = state.inputWord.slice(0, -1)
+            state.letterStates[state.inputWord.length] = 'normal'
+          }
           state.hasWrong = false
         })
       }, 300)
@@ -264,20 +280,12 @@ if (
         clearTimeout(timer)
       }
     }
-  }, [wordState.hasWrong, setWordState])
+  }, [wordState.hasWrong, setWordState, isStrictResetMode]) // 💥 将新开关加入依赖项
 
   useEffect(() => {
     if (wordState.isFinished) {
       dispatch({ type: TypingStateActionType.SET_IS_SAVING_RECORD, payload: true })
 
-      // wordLogUploader({
-      //   headword: word.name,
-      //   timeStart: wordState.startTime,
-      //   timeEnd: wordState.endTime,
-      //   countInput: wordState.correctCount + wordState.wrongCount,
-      //   countCorrect: wordState.correctCount,
-      //   countTypo: wordState.wrongCount,
-      // })
       saveWordRecord({
         word: word.name,
         wrongCount: wordState.wrongCount,

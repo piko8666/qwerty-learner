@@ -1,5 +1,12 @@
 import styles from './index.module.css'
-import { isIgnoreCaseAtom, isShowAnswerOnHoverAtom, isShowPrevAndNextWordAtom, isTextSelectableAtom, randomConfigAtom } from '@/store'
+import {
+  isIgnoreCaseAtom,
+  isShowAnswerOnHoverAtom,
+  isShowPrevAndNextWordAtom,
+  isTextSelectableAtom,
+  randomConfigAtom,
+  isStrictResetModeAtom, // 💥 引入全局精准模式状态
+} from '@/store'
 import { Switch } from '@headlessui/react'
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import { useAtom } from 'jotai'
@@ -11,6 +18,8 @@ export default function AdvancedSetting() {
   const [isIgnoreCase, setIsIgnoreCase] = useAtom(isIgnoreCaseAtom)
   const [isTextSelectable, setIsTextSelectable] = useAtom(isTextSelectableAtom)
   const [isShowAnswerOnHover, setIsShowAnswerOnHover] = useAtom(isShowAnswerOnHoverAtom)
+  // 💥 绑定精准模式状态
+  const [isStrictResetMode, setIsStrictResetMode] = useAtom(isStrictResetModeAtom)
 
   const onToggleRandom = useCallback(
     (checked: boolean) => {
@@ -42,11 +51,20 @@ export default function AdvancedSetting() {
     },
     [setIsTextSelectable],
   )
+
   const onToggleShowAnswerOnHover = useCallback(
     (checked: boolean) => {
       setIsShowAnswerOnHover(checked)
     },
     [setIsShowAnswerOnHover],
+  )
+
+  // 💥 切换精准模式的回调函数
+  const onToggleStrictResetMode = useCallback(
+    (checked: boolean) => {
+      setIsStrictResetMode(checked)
+    },
+    [setIsStrictResetMode],
   )
 
   return (
@@ -101,6 +119,22 @@ export default function AdvancedSetting() {
               }`}</span>
             </div>
           </div>
+
+          {/* ==================== 💥 新增：下拉/高级设置面板中的“精准模式”开关 ==================== */}
+          <div className={styles.section}>
+            <span className={styles.sectionLabel}>精准模式</span>
+            <span className={styles.sectionDescription}>开启后，输入错误任何一个字母都需要将整词重新输入</span>
+            <div className={styles.switchBlock}>
+              <Switch checked={isStrictResetMode} onChange={onToggleStrictResetMode} className="switch-root">
+                <span aria-hidden="true" className="switch-thumb" />
+              </Switch>
+              <span className="text-right text-xs font-normal leading-tight text-gray-600">{`精准模式已${
+                isStrictResetMode ? '开启' : '关闭'
+              }`}</span>
+            </div>
+          </div>
+          {/* =================================================================================== */}
+
           <div className={styles.section}>
             <span className={styles.sectionLabel}>是否允许默写模式下显示提示</span>
             <span className={styles.sectionDescription}>开启后，可以通过鼠标 hover 单词显示正确答案 </span>
